@@ -5,6 +5,14 @@ this directory. It summarizes a long planning/design conversation done in
 claude.ai chat before this project folder existed, so Claude Code has the
 background without the person needing to re-explain it.
 
+## START HERE (current status)
+
+Read **`NEXT_STEPS.md`** first: where work stopped and the exact steps to
+resume. As of 2026-11-06 the open problem is a **mechanical jam in the az
+motor/gearbox/worm** (motor hums but stays stopped, with the clutch out and
+the supply healthy). Firmware on the Pico = git tag `flashed-2026-11-06b`
+(sketch `claude_scopico`).
+
 ## Goal
 
 Replace the failed original control electronics on a Meade LX90 telescope with
@@ -25,6 +33,11 @@ C++. Requirements:
 - **Motor driver (since 2026-11-01):** two DRV8871 boards, one per axis
   (IN1/IN2 control only: 00 coast, 10 fwd, 01 rev, 11 brake; 3.6 A peak,
   internal current limit). Previously one Adafruit TB6612 (1.2 A cont.).
+- **Motor supply (since 2026-11-06):** both DRV8871s fed DIRECTLY from the
+  15 V 6 A PSU. The LM2596 buck that made "12 V" collapsed to 4-5 V under
+  load (and sat at ~7.5 V when hot) -- removed from the motor path. With
+  15 V, `md` = 32 % on both axes (= 4.8 V average, same as 40 % of 12 V).
+  Supply monitor: 15V -> 10k -> GP28 (ADC2) -> 1k -> GND, `vsup` command.
 - **Encoders:** optical quadrature, mounted on the **motor shaft** (not the
   axis), 5V signal, A/B outputs, **432 quadrature counts per motor rev**
   (108 lines x 4 edges). CORRECTED 2026-10-09: this line used to say "108
@@ -61,6 +74,11 @@ C++. Requirements:
   = 41.37 counts/s (true sidereal). Sketches #1-#4 still say 108 -- their
   "sidereal" (10.34 c/s) is really 1/4 sidereal; the ~7 % duty bench figure
   was measured at that 10.34 c/s.
+- **OPEN (2026-11-06): az drive jams** -- after the supply fix, the az motor
+  still stops at speed and stays stopped, humming (powered, not turning),
+  with the az clutch released and the supply steady at 15.3 V. So it's in
+  the az motor/gearbox/worm. Next: reverse spin test, isolate motor+gearbox
+  from the worm, inspect/clean/re-grease (see NEXT_STEPS.md).
 - Az "stall" faults (2026-10 TB6612, 2026-11 DRV8871): at slew speed the
   motor suddenly drops to a fraction of its speed with 40 % duty applied.
   Traced (2026-11) with the 500 Hz `cap` recorder and the fault black box:
@@ -200,7 +218,13 @@ person through sketch #2 and #3.
    `/hwdir.txt`), because the TB6612-era invertMotor values in the saved
    `/calib.txt` can't be trusted and a wrong direction is a runaway.
    Calibration must be redone (`auto full`) for the new drivers. Compiled
-   cleanly with arduino-pico 6.3.0; not yet run on the rewired hardware.
+   cleanly with arduino-pico 6.3.0. RUNNING ON THE HARDWARE since 2026-11
+   (tag `flashed-2026-11-06b`). Added since: `jogmax`, the 500 Hz `cap`
+   recorder (labels drag peaks with gear-shaft rates), fault black box
+   (`fault`, last 0.5 s of speed/duty/supply before a trip), supply monitor
+   (`vsup`), speed-scheduled moving gains (`gs`), open-loop `spin` test, and
+   `auto full` checks (refuses if the speed test crawls or the supply sagged
+   below 10.5 V). Host tests now built against `sketches/claude_scopico`.
 
 ## Previously the immediate next task (now implemented as sketch #4)
 
