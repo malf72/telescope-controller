@@ -12,6 +12,7 @@ static AxisCalib sample(int a) {
   c.ffGain = 0.676631 + a * 0.01; c.ffOffset = 3.5 - a * 1.9; c.kp = 1.23456789; c.ki = 0.3141592653; c.maxIntegral = 40;
   c.kpHold = 0.15; c.kiHold = 0.05; c.maxIntegralHold = 40; c.maxDuty = 40;
   c.maxVel = 51.72; c.maxAccel = 100; c.faultThreshold = 200; c.invertMotor = (a == 1);
+  c.gainFast = 0.25; c.gainVSlow = 413.7; c.gainVFast = 4137.4;
   return c;
 }
 static bool same(const AxisCalib &x, const AxisCalib &y) {
@@ -53,7 +54,9 @@ int main() {
     {"telescope-calib v1\naxis=0 kp=abc\naxis=1\n"}, {"telescope-calib v1\naxis=0 kp=1.5x\naxis=1\n"},
     {"telescope-calib v1\naxis=0 kp=nan\naxis=1\n"}, {"telescope-calib v1\naxis=0 maxDuty=150\naxis=1\n"},
     {"telescope-calib v1\naxis=0 ffGain=-1\naxis=1\n"},
-    {"telescope-calib v1\naxis=0 ffOffset=-0.5\naxis=1\n"}, {"telescope-calib v1\naxis=0 invertMotor=2\naxis=1\n"},
+    {"telescope-calib v1\naxis=0 ffOffset=-0.5\naxis=1\n"},
+    {"telescope-calib v1\naxis=0 gainFast=1.5\naxis=1\n"},
+    {"telescope-calib v1\naxis=0 gainVSlow=5000 gainVFast=4000\naxis=1\n"}, {"telescope-calib v1\naxis=0 invertMotor=2\naxis=1\n"},
     {"telescope-calib v1\naxis=0 kp\naxis=1\n"}, {"telescope-calib v1\naxis=0 kp=\naxis=1\n"},
   };
   for (auto &b : bad) {

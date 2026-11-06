@@ -23,6 +23,7 @@ struct AxisCalib {
   double ffGain, ffOffset, kp, ki, maxIntegral;
   double kpHold, kiHold, maxIntegralHold;
   double maxDuty, maxVel, maxAccel, faultThreshold;
+  double gainFast, gainVSlow, gainVFast;     // speed schedule of the moving gains (servo_core.h)
   bool   invertMotor;
 };
 
@@ -40,6 +41,9 @@ static const CalibField CALIB_FIELDS[] = {
   {"maxVel",          &AxisCalib::maxVel},
   {"maxAccel",        &AxisCalib::maxAccel},
   {"faultThreshold",  &AxisCalib::faultThreshold},
+  {"gainFast",        &AxisCalib::gainFast},
+  {"gainVSlow",       &AxisCalib::gainVSlow},
+  {"gainVFast",       &AxisCalib::gainVFast},
 };
 static const int CALIB_NFIELDS = sizeof(CALIB_FIELDS) / sizeof(CALIB_FIELDS[0]);
 
@@ -84,6 +88,8 @@ inline bool checkCalib(const AxisCalib &c, char *err, size_t errN) {
   if (c.maxDuty <= 0 || c.maxDuty > 100)          { snprintf(err, errN, "maxDuty must be in (0, 100]"); return false; }
   if (c.maxVel <= 0 || c.maxAccel <= 0)           { snprintf(err, errN, "maxVel/maxAccel must be > 0"); return false; }
   if (c.faultThreshold <= 0)                      { snprintf(err, errN, "faultThreshold must be > 0"); return false; }
+  if (c.gainFast <= 0 || c.gainFast > 1)          { snprintf(err, errN, "gainFast must be in (0, 1]"); return false; }
+  if (c.gainVSlow <= 0 || c.gainVFast <= c.gainVSlow) { snprintf(err, errN, "need 0 < gainVSlow < gainVFast"); return false; }
   return true;
 }
 

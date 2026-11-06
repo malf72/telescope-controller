@@ -45,7 +45,16 @@ struct AxisCtrl {
   double velCmd      = 0.0;  // MODE_TRACK: requested velocity; targetVel ramps to it at maxAccel
   double goalPos     = 0.0;  // used only in MODE_SLEW
   double integral    = 0.0;
-  bool   integralMoving = false;   // which gain set 'integral' was accumulated under
+  double kiPrev      = 0.0;   // effective ki used on the previous step (bumpless rescaling)
+
+  // Speed scheduling of the MOVING gains (kp/ki). Full gains at or below
+  // gainVSlow (tracking -- where the relay-tuned gains give the best accuracy),
+  // gainFast x kp/ki at or above gainVFast (slews/fast moves -- where the same
+  // gains made the az servo oscillate at ~28 Hz, 2026-11), interpolated on a
+  // log-speed scale in between. gainFast = 1 disables it. Uses |targetVel|.
+  double gainFast    = 1.0;
+  double gainVSlow   = 0.0;    // counts/s
+  double gainVFast   = 0.0;    // counts/s
 
   double lastOut     = 0.0;
   double lastErr      = 0.0;
@@ -75,6 +84,16 @@ inline void stepProfile(AxisCtrl &a, double dt) {
   }
 }
 
+// Fraction of the moving gains to use at target speed v (counts/s).
+inline double movingGainScale(const AxisCtrl &a, double v) {
+  if (a.gainFast >= 1.0 || a.gainVSlow <= 0 || a.gainVFast <= a.gainVSlow) return 1.0;
+  v = std::fabs(v);
+  if (v <= a.gainVSlow) return 1.0;
+  if (v >= a.gainVFast) return a.gainFast;
+  double t = std::log(v / a.gainVSlow) / std::log(a.gainVFast / a.gainVSlow);
+  return 1.0 + t * (a.gainFast - 1.0);
+}
+
 // One 1 kHz control step. posNow is the current encoder count (as a double).
 // Returns signed duty percent, already clamped to +-maxDuty.
 inline double servoStep(AxisCtrl &a, double posNow, double dt) {
@@ -91,22 +110,24 @@ inline double servoStep(AxisCtrl &a, double posNow, double dt) {
   // MODE_IDLE / MODE_HOLD: targetPos stays fixed, targetVel forced to 0 by caller when entering those modes.
 
   bool moving = (a.mode == MODE_TRACK || a.mode == MODE_SLEW);
-  double kp    = moving ? a.kp : a.kpHold;
-  double ki    = moving ? a.ki : a.kiHold;
+  double sched = moving ? movingGainScale(a, a.targetVel) : 1.0;
+  double kp    = moving ? a.kp * sched : a.kpHold;
+  double ki    = moving ? a.ki * sched : a.kiHold;
   double maxI  = moving ? a.maxIntegral : a.maxIntegralHold;
   // the integral term alone may never ask for more than the drive limit
   if (ki > 0 && maxI > a.maxDuty / ki) maxI = a.maxDuty / ki;
 
-  // Bumpless gain switch. The hold gains (ki ~0.05) legitimately wind the
-  // integral up to its limit to hold against gravity/friction; carried raw into
-  // the moving gains (ki ~20, 400x larger) that same value meant ~800 % duty and
-  // the axis ran away at full speed the instant a move started (seen from
-  // Stellarium Mobile, 2026-10-09). Rescale so the integral's duty contribution
-  // is unchanged across the switch.
-  if (moving != a.integralMoving) {
-    double kiOld = a.integralMoving ? a.ki : a.kiHold;
-    a.integral = (ki > 0) ? a.integral * kiOld / ki : 0.0;
-    a.integralMoving = moving;
+  // Bumpless gain change. Whenever the effective ki changes -- hold <-> moving
+  // gain sets, or the speed schedule -- rescale the integral so its duty
+  // contribution ki*integral is unchanged. The hold gains (ki ~0.05)
+  // legitimately wind the integral up to its limit to hold against
+  // gravity/friction; carried raw into the moving gains (ki ~20, 400x larger)
+  // that value meant ~800 % duty and the axis ran away the instant a move
+  // started (seen from Stellarium Mobile, 2026-10-09).
+  if (ki != a.kiPrev) {
+    if (a.kiPrev > 0 && ki > 0) a.integral *= a.kiPrev / ki;
+    else if (ki <= 0) a.integral = 0.0;
+    a.kiPrev = ki;
   }
 
   double err = a.targetPos - posNow;

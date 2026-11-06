@@ -71,8 +71,18 @@ C++. Requirements:
   following-error fault. Halving kp/ki removed the oscillation (duty
   +-2.7 %, drive train otherwise smooth, <1 % ripple at gear rates) and the
   faults stopped; re-running `auto full` restored the old gains and the
-  faults came back. Fix: `PI_DERATE = 0.5` applied by `auto full` /
-  `auto apply tl|zn` in claude_scopico. NOT a mechanical fault.
+  faults came back. NOT a mechanical fault. First fix was a blanket 0.5
+  on the relay gains, but that cost sidereal tracking accuracy; replaced
+  (2026-11-06) by a SPEED SCHEDULE of the moving gains in `servo_core.h`:
+  full relay-tuned kp/ki at or below 10x sidereal, 0.25x at or above 100x
+  sidereal, log-speed blend between (`gs` command, saved per axis as
+  gainFast/gainVSlow/gainVFast). The integral is rescaled on every change of
+  effective ki (bumpless), generalising the hold<->moving fix below.
+- (2026-11-06) The "12 V" motor supply read ~7.5 V idle and sagged to 4.4 V
+  (GP28 monitor, `vsup`) -- below the DRV8871's 6.5 V minimum. That caused
+  the reduced speed / drive cut-outs / failed auto full runs of that day;
+  fixed on the power side. `auto full` now refuses to save if the supply
+  dipped below 10.5 V or a speed test reached < 50x sidereal.
 - **Measured facts:**
   - Dec motor needed direction inversion (`invertMotor[1] = true`) so
     positive duty gives positive encoder counts; RA did not.

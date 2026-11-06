@@ -29,8 +29,11 @@ struct Motor {
   double count() const { return std::floor(pos); }               // quantized encoder
 };
 
+static bool g_schedule = false;   // apply the default speed schedule in axis1()
+
 static AxisCtrl axis1(bool affineFF) {
   AxisCtrl a;
+  if (g_schedule) { a.gainFast = 0.25; a.gainVSlow = 10 * SID; a.gainVFast = 100 * SID; }
   a.kp = 0.8289; a.ki = 19.8309; a.maxIntegral = 40;
   a.kpHold = 0.15; a.kiHold = 0.05; a.maxIntegralHold = 40;
   a.maxDuty = 40; a.maxVel = 19397; a.maxAccel = 62347.5;
@@ -121,8 +124,34 @@ static HoldMoveResult holdThenMove(double rate) {
   return r;
 }
 
+// ---- speed schedule of the moving gains
+static void scheduleTests() {
+  AxisCtrl a = axis1(true);
+  a.gainFast = 0.25; a.gainVSlow = 10 * SID; a.gainVFast = 100 * SID;
+  CHECK(std::fabs(movingGainScale(a, SID) - 1.0) < 1e-12);           // tracking: full gains
+  CHECK(std::fabs(movingGainScale(a, -10 * SID) - 1.0) < 1e-12);
+  CHECK(std::fabs(movingGainScale(a, 17000) - 0.25) < 1e-12);         // fast move: 25 %
+  CHECK(std::fabs(movingGainScale(a, -std::sqrt(10.0 * 100.0) * SID) - 0.625) < 1e-9);  // log-midpoint
+  AxisCtrl off = axis1(true);                                          // default: no scheduling
+  CHECK(movingGainScale(off, 17000) == 1.0);
+
+  // bumpless: jumping from tracking speed to slew speed (schedule 1.0 -> 0.25)
+  // must not change the integral's duty contribution
+  a.mode = MODE_TRACK;
+  a.targetVel = a.velCmd = 2 * SID;
+  a.targetPos = 0; a.integral = 1.5;
+  servoStep(a, a.targetVel * 0.001, 0.001);                            // err = 0: no integration
+  double iBefore = a.ki * movingGainScale(a, a.targetVel) * a.integral;
+  a.targetVel = a.velCmd = 15000;
+  servoStep(a, a.targetPos + a.targetVel * 0.001, 0.001);
+  double iAfter = a.ki * movingGainScale(a, a.targetVel) * a.integral;
+  printf("schedule: I-term %.4f%% before, %.4f%% after a 2x -> 360x sidereal speed jump\n", iBefore, iAfter);
+  CHECK(std::fabs(iBefore - iAfter) < 1e-9);
+}
+
 int main() {
   double endErr;
+  scheduleTests();
   {
     HoldMoveResult r = holdThenMove(-331);
     printf("hold (integral %.1f) then move at -331 c/s: integral duty %.2f%% before switch -> %.2f%% after "
@@ -147,6 +176,20 @@ int main() {
     double o = simulateMove(false, r, 2.0, endErr), w = simulateMove(true, r, 2.0, endErr);
     printf("move at %8.1f c/s: worst err old %7.1f | new %6.1f counts\n", r, o, w);
     CHECK(w < 200 + r * 0.1);
+  }
+
+  {
+    // with the schedule on and full relay gains (as auto full now applies them)
+    double e1, e2;
+    g_schedule = true;
+    double w = simulateMove(true, 19397, 2.0, e1);
+    double tr = simulateTracking(true);
+    g_schedule = false;
+    double trOff = simulateTracking(true);
+    (void)e2;
+    printf("schedule on: full-speed worst err %.0f counts (end %.1f); tracking RMS %.3f vs %.3f without\n", w, e1, tr, trOff);
+    CHECK(w < 200 + 19397 * 0.1);
+    CHECK(std::fabs(tr - trOff) < 1e-9);                                // tracking speed untouched by the schedule
   }
 
   double tOld = simulateTracking(false), tNew = simulateTracking(true);

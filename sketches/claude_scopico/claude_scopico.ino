@@ -526,12 +526,14 @@ static RelayTune relay[2];
 static const double RELAY_DEFAULT_DUTY = 15.0;  // %
 static const double RELAY_DEFAULT_H    = 1.5;   // counts
 static double lastKpTL[2], lastKiTL[2], lastKpZN[2], lastKiZN[2];
-// Applied to relay-tuned moving gains before use. The relay test runs near
-// standstill, where friction damps the motor; at slew speed the same gains made
-// the az servo oscillate at ~28 Hz (+-13 % duty, measured with 'cap', 2026-11)
-// and the current swings collapsed the drive into following-error faults.
-// Halving kp and ki removed the oscillation completely (duty +-2.7 %).
-static const double PI_DERATE = 0.5;
+// Relay-tuned gains are applied as they are: they suit tracking speeds (the
+// relay test runs near standstill). At slew speed the same gains made the az
+// servo oscillate at ~28 Hz (+-13 % duty, measured with 'cap', 2026-11) --
+// halving them cured it. Rather than halving them everywhere (which cost
+// tracking accuracy), the speed schedule (AxisCtrl::gainFast, console 'gs')
+// scales them down with speed.
+static const double GS_DEFAULT_FAST = 0.25;                  // fraction of kp/ki at fast speeds
+static const double GS_DEFAULT_VSLOW_SID = 10, GS_DEFAULT_VFAST_SID = 100;   // x sidereal
 static bool havePIResult[2] = {false, false};
 
 static void startRelayTune(int a, double duty, double hysteresis) {
@@ -601,8 +603,8 @@ static void updateRelayTune(int a) {
     Con.printf("axis %d: relay auto-tune done. Ku=%.3f Tu=%.3fs maxErr=%.1f counts\n", a, Ku, Tu, r.maxAbsErr);
     Con.printf("  Tyreus-Luyben (gentler):    kp=%.4f ki=%.4f   -- apply with 'auto apply %d tl'\n", kp_tl, ki_tl, a);
     Con.printf("  Ziegler-Nichols (sharper):  kp=%.4f ki=%.4f   -- apply with 'auto apply %d zn'\n", kp_zn, ki_zn, a);
-    Con.printf("  These become the MOVING (track/slew) gains only, x %.2f when applied -- hold gains are untouched on purpose.\n",
-               PI_DERATE);
+    Con.printf("  These become the MOVING (track/slew) gains, scaled down with speed by 'gs' (now %.2f x above %.0f c/s);\n"
+               "  hold gains are untouched on purpose.\n", axis[a].gainFast, axis[a].gainVFast);
   }
 }
 
@@ -812,6 +814,7 @@ static AxisCalib calibFromAxis(int a) {
   c.ffGain = axis[a].ffGain;   c.ffOffset = axis[a].ffOffset;   c.kp = axis[a].kp;   c.ki = axis[a].ki;   c.maxIntegral = axis[a].maxIntegral;
   c.kpHold = axis[a].kpHold;   c.kiHold = axis[a].kiHold;   c.maxIntegralHold = axis[a].maxIntegralHold;
   c.maxDuty = axis[a].maxDuty; c.maxVel = axis[a].maxVel;   c.maxAccel = axis[a].maxAccel;
+  c.gainFast = axis[a].gainFast; c.gainVSlow = axis[a].gainVSlow; c.gainVFast = axis[a].gainVFast;
   SERVO_UNLOCK();
   c.faultThreshold = faultThreshold[a];
   c.invertMotor    = invertMotor[a];
@@ -824,6 +827,7 @@ static void calibToAxis(int a, const AxisCalib &c) {
   axis[a].ffGain = c.ffGain;   axis[a].ffOffset = c.ffOffset;   axis[a].kp = c.kp;   axis[a].ki = c.ki;   axis[a].maxIntegral = c.maxIntegral;
   axis[a].kpHold = c.kpHold;   axis[a].kiHold = c.kiHold;   axis[a].maxIntegralHold = c.maxIntegralHold;
   axis[a].maxDuty = c.maxDuty; axis[a].maxVel = c.maxVel;   axis[a].maxAccel = c.maxAccel;
+  axis[a].gainFast = c.gainFast; axis[a].gainVSlow = c.gainVSlow; axis[a].gainVFast = c.gainVFast;
   SERVO_UNLOCK();
   faultThreshold[a] = c.faultThreshold;
   invertMotor[a]    = c.invertMotor;
@@ -1010,13 +1014,13 @@ static void updateFullTune() {
   for (int b = 0; b < 2; b++) {
     applyFF(b, lastTuneFF[b] * SIDEREAL_CPS, lastPlateau[b], lastPlateauDuty[b]);
     SERVO_LOCK();
-    axis[b].kp = PI_DERATE * (F.useZN ? lastKpZN[b] : lastKpTL[b]);
-    axis[b].ki = PI_DERATE * (F.useZN ? lastKiZN[b] : lastKiTL[b]);
+    axis[b].kp = F.useZN ? lastKpZN[b] : lastKpTL[b];
+    axis[b].ki = F.useZN ? lastKiZN[b] : lastKiTL[b];
     axis[b].maxVel   = lastSuggestMaxVel[b];
     axis[b].maxAccel = lastSuggestMaxAccel[b];
     SERVO_UNLOCK();
   }
-  Con.printf("auto full: DONE, applied to both axes (moving gains = relay result x %.2f safety factor):\n", PI_DERATE);
+  Con.println(F("auto full: DONE, applied to both axes (moving gains = relay result, scaled with speed by 'gs'):"));
   for (int b = 0; b < 2; b++)
     Con.printf("  axis %d: ff=%.3f%%+%.6f/(c/s)  moving kp=%.4f ki=%.4f (%s)  mv=%.2f ma=%.2f\n",
                   b, axis[b].ffOffset, axis[b].ffGain, axis[b].kp, axis[b].ki, F.useZN ? "ZN" : "TL",
@@ -1815,7 +1819,9 @@ static void printHelp() {
     "  vsup [reset]            motor supply voltage now / lowest / highest (12V-10k-GP28-1k-GND)\n"
     "  cap <axis> [sec]        record duty at 500 Hz during a move, report repeating drag + which part\n"
     "                          (motor / gearbox stage / worm) turns at that rate; 'cap dump' = raw CSV\n"
-    "  kp/ki <axis> <val>      tune the MOVING (track/slew) gains directly\n"
+    "  kp/ki <axis> <val>      tune the MOVING (track/slew) gains directly (full-strength values)\n"
+    "  gs [<axis|a> <fast> [slow fast]]  moving-gain speed schedule: full kp/ki at or below slow c/s,\n"
+    "                          'fast' x kp/ki at or above fast c/s (default 0.25, 10x..100x sidereal)\n"
     "  kph/kih <axis> <val>    tune the HOLD gains directly\n"
     "  ff <axis> <val>         set feedforward gain directly (duty %% per count/s)\n"
     "  ffo <axis> <val>        set feedforward friction offset directly (duty %%)\n"
@@ -1867,12 +1873,14 @@ static void printStatus(int a) {
   const char *modeStr = x.mode==MODE_IDLE?"IDLE":x.mode==MODE_TRACK?"TRACK":x.mode==MODE_SLEW?"SLEW":"HOLD";
   Con.printf("axis %d: %s%s%s en=%d mode=%-5s pos=%9ld target=%10.2f err=%7.3f duty=%6.2f%%\n"
                 "  moving: kp=%.4f ki=%.4f maxI=%.1f   hold: kp=%.4f ki=%.4f maxI=%.1f\n"
-                "  ff=%.4f ffo=%.3f maxDuty=%.1f maxVel=%.2f maxAccel=%.2f faultAt=%.1f (+%.1fs of travel)\n",
+                "  ff=%.4f ffo=%.3f maxDuty=%.1f maxVel=%.2f maxAccel=%.2f faultAt=%.1f (+%.1fs of travel)\n"
+                "  gain schedule: full kp/ki <= %.0f c/s, %.2f x >= %.0f c/s\n",
                 a, invertMotor[a] ? "(inv) " : "      ", faulted[a] ? "FAULT " : "",
                 testMode[a] ? "TESTING " : "",
                 motorsEnabled[a], modeStr, (long)posSnap[a], targetSnap[a], errSnap[a], dutySnap[a],
                 x.kp, x.ki, x.maxIntegral, x.kpHold, x.kiHold, x.maxIntegralHold,
-                x.ffGain, x.ffOffset, x.maxDuty, x.maxVel, x.maxAccel, faultThreshold[a], FAULT_LAG_S);
+                x.ffGain, x.ffOffset, x.maxDuty, x.maxVel, x.maxAccel, faultThreshold[a], FAULT_LAG_S,
+                x.gainVSlow, x.gainFast, x.gainVFast);
 }
 
 static void report() {
@@ -1945,14 +1953,14 @@ static void handleAutoCmd(char *rest) {
       applyFF(ax, lastTuneFF[ax] * SIDEREAL_CPS, P, Pd);
     } else if (!strcasecmp(t2, "tl")) {
       if (!havePIResult[ax]) { Con.println(F("no pi result yet")); return; }
-      SERVO_LOCK(); axis[ax].kp = PI_DERATE * lastKpTL[ax]; axis[ax].ki = PI_DERATE * lastKiTL[ax]; SERVO_UNLOCK();
-      Con.printf("axis %d: moving kp=%.4f ki=%.4f applied (Tyreus-Luyben x %.2f safety factor)\n",
-                 ax, axis[ax].kp, axis[ax].ki, PI_DERATE);
+      SERVO_LOCK(); axis[ax].kp = lastKpTL[ax]; axis[ax].ki = lastKiTL[ax]; SERVO_UNLOCK();
+      Con.printf("axis %d: moving kp=%.4f ki=%.4f applied (Tyreus-Luyben; scaled with speed by 'gs')\n",
+                 ax, axis[ax].kp, axis[ax].ki);
     } else if (!strcasecmp(t2, "zn")) {
       if (!havePIResult[ax]) { Con.println(F("no pi result yet")); return; }
-      SERVO_LOCK(); axis[ax].kp = PI_DERATE * lastKpZN[ax]; axis[ax].ki = PI_DERATE * lastKiZN[ax]; SERVO_UNLOCK();
-      Con.printf("axis %d: moving kp=%.4f ki=%.4f applied (Ziegler-Nichols x %.2f safety factor)\n",
-                 ax, axis[ax].kp, axis[ax].ki, PI_DERATE);
+      SERVO_LOCK(); axis[ax].kp = lastKpZN[ax]; axis[ax].ki = lastKiZN[ax]; SERVO_UNLOCK();
+      Con.printf("axis %d: moving kp=%.4f ki=%.4f applied (Ziegler-Nichols; scaled with speed by 'gs')\n",
+                 ax, axis[ax].kp, axis[ax].ki);
     } else if (!strcasecmp(t2, "speed")) {
       if (!haveSpeedResult[ax]) { Con.println(F("no speed result yet")); return; }
       SERVO_LOCK(); axis[ax].maxVel = lastSuggestMaxVel[ax]; axis[ax].maxAccel = lastSuggestMaxAccel[ax]; SERVO_UNLOCK();
@@ -2360,6 +2368,35 @@ static void handleLineFull(char *line) {
     return;
   }
   if (!strcasecmp(cmd, "x")) { disableAxis(0); disableAxis(1); Con.println(F("EMERGENCY STOP")); return; }
+  if (!strcasecmp(cmd, "gs")) {
+    // gs                                  show
+    // gs <axis|a> <fast> [slow_cps fast_cps]   set (fast = fraction of kp/ki at speed)
+    if (t1 && t2) {
+      double f = atof(t2);
+      char *t4 = strtok(NULL, " \t");
+      for (int b = 0; b < 2; b++) {
+        if (!(t1[0] == 'a' || t1[0] == 'A' || (axValid && ax == b))) continue;
+        double vs = t3 ? atof(t3) : axis[b].gainVSlow, vf = t4 ? atof(t4) : axis[b].gainVFast;
+        if (f <= 0 || f > 1 || vs <= 0 || vf <= vs) {
+          Con.println(F("gs: need 0 < fast <= 1 and 0 < slow_cps < fast_cps")); return;
+        }
+        SERVO_LOCK(); axis[b].gainFast = f; axis[b].gainVSlow = vs; axis[b].gainVFast = vf; SERVO_UNLOCK();
+      }
+      Con.println(F("gs: applied -- 'cfg save' to keep it"));
+    } else if (t1) {
+      Con.println(F("usage: gs                                  show the moving-gain speed schedule\n"
+                    "       gs <axis|a> <fast> [slow_cps fast_cps]  full kp/ki at or below slow_cps,\n"
+                    "                                           fast x kp/ki at or above fast_cps"));
+      return;
+    }
+    for (int b = 0; b < 2; b++) {
+      const AxisCtrl &x = axis[b];
+      Con.printf("gs: axis %d  full kp/ki (%.3f / %.3f) up to %.0f c/s (%.1fx sidereal), %.2f x (%.3f / %.3f) from %.0f c/s (%.0fx)\n",
+                 b, x.kp, x.ki, x.gainVSlow, x.gainVSlow / SIDEREAL_CPS, x.gainFast, x.kp * x.gainFast, x.ki * x.gainFast,
+                 x.gainVFast, x.gainVFast / SIDEREAL_CPS);
+    }
+    return;
+  }
   if (!strcasecmp(cmd, "kp"))  { if (axValid && t2) { SERVO_LOCK(); axis[ax].kp = atof(t2); SERVO_UNLOCK(); } return; }
   if (!strcasecmp(cmd, "ki"))  { if (axValid && t2) { SERVO_LOCK(); axis[ax].ki = atof(t2); SERVO_UNLOCK(); } return; }
   if (!strcasecmp(cmd, "kph")) { if (axValid && t2) { SERVO_LOCK(); axis[ax].kpHold = atof(t2); SERVO_UNLOCK(); } return; }
@@ -2417,6 +2454,9 @@ void setup() {
     axis[a].maxDuty        = 40.0;
     axis[a].maxVel         = 5.0 * SIDEREAL_CPS;
     axis[a].maxAccel       = 100.0;
+    axis[a].gainFast       = GS_DEFAULT_FAST;              // speed schedule (overridden by a saved calibration)
+    axis[a].gainVSlow      = GS_DEFAULT_VSLOW_SID * SIDEREAL_CPS;
+    axis[a].gainVFast      = GS_DEFAULT_VFAST_SID * SIDEREAL_CPS;
     axis[a].mode           = MODE_IDLE;
   }
 
