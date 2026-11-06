@@ -683,6 +683,84 @@ static void updateSpeedTune(int a) {
 }
 
 // ==================================================================
+// SPIN: open-loop run at a fixed duty, to catch drive / encoder dropouts
+// ==================================================================
+// No servo and no following-error trip: the motor just gets the requested
+// duty for the requested time, and the speed (from the encoder) and supply are
+// printed twice a second. Any sudden drop is called out, and the motor keeps
+// being driven so it can be seen whether the speed comes back -- watch/listen
+// at that moment: motor still turning = encoder; motor stopped = drive/motor/jam.
+struct SpinTest {
+  bool active = false;
+  double duty = 0;
+  uint32_t startMs = 0, durMs = 0, lastSampleMs = 0, lastPrintMs = 0;
+  int32_t lastCnt = 0;
+  double avgSpeed = 0, speed = 0, minV = 99;
+  int drops = 0;
+  bool inDrop = false;
+  uint32_t dropStartMs = 0;
+};
+static SpinTest spin[2];
+
+static void startSpin(int a, double duty, double secs) {
+  if (testMode[a]) { Con.printf("axis %d busy (a test is running or just finishing)\n", a); return; }
+  if (!dirChecked[a]) { Con.printf("axis %d: run 'auto dir %d' first\n", a, a); return; }
+  if (fabs(duty) > axis[a].maxDuty) duty = duty > 0 ? axis[a].maxDuty : -axis[a].maxDuty;
+  spin[a] = SpinTest();
+  spin[a].active = true;
+  spin[a].duty = duty;
+  spin[a].startMs = spin[a].lastSampleMs = spin[a].lastPrintMs = millis();
+  spin[a].durMs = (uint32_t)(secs * 1000);
+  spin[a].lastCnt = countOf(a);
+  testMode[a] = true;
+  writeMotorHardware(a, duty);
+  Con.printf("spin: axis %d open loop at %+.1f%% duty for %.0f s -- keep clear. 'auto abort %d' or 'x' stops it.\n"
+             "  Watch/listen: if a SPEED DROP is reported while the motor is still audibly turning, it's the encoder.\n",
+             a, duty, secs, a);
+}
+
+static void updateSpin(int a) {
+  SpinTest &sp = spin[a];
+  if (!sp.active) return;
+  if (!testMode[a]) { sp.active = false; return; }      // aborted
+  uint32_t now = millis();
+  if (now - sp.lastSampleMs >= 50) {                     // 20 Hz speed samples
+    int32_t c = countOf(a);
+    sp.speed = (c - sp.lastCnt) * 1000.0 / (now - sp.lastSampleMs);
+    sp.lastCnt = c;
+    sp.lastSampleMs = now;
+    if (supplyV >= SUPPLY_PRESENT_V) sp.minV = fmin(sp.minV, supplyV);
+    bool spunUp = now - sp.startMs > 1500;
+    if (spunUp && !sp.inDrop) {
+      if (fabs(sp.speed) < 0.5 * fabs(sp.avgSpeed) && fabs(sp.avgSpeed) > 200) {
+        sp.inDrop = true; sp.drops++; sp.dropStartMs = now;
+        Con.printf("spin: *** SPEED DROP at t=%.2f s: %.0f c/s (running average %.0f), supply %.2f V ***\n",
+                   (now - sp.startMs) / 1000.0, sp.speed, sp.avgSpeed, supplyV);
+      } else sp.avgSpeed = sp.avgSpeed * 0.9 + sp.speed * 0.1;
+    } else if (!spunUp) {
+      sp.avgSpeed = sp.speed;
+    } else if (fabs(sp.speed) > 0.8 * fabs(sp.avgSpeed)) {
+      sp.inDrop = false;
+      Con.printf("spin: speed back to %.0f c/s after %.2f s\n", sp.speed, (now - sp.dropStartMs) / 1000.0);
+    }
+  }
+  if (now - sp.lastPrintMs >= 500) {
+    sp.lastPrintMs = now;
+    if (supplyV >= SUPPLY_PRESENT_V)
+      Con.printf("spin: t=%5.1f s  speed %7.0f c/s  supply %5.2f V\n", (now - sp.startMs) / 1000.0, sp.speed, supplyV);
+    else
+      Con.printf("spin: t=%5.1f s  speed %7.0f c/s\n", (now - sp.startMs) / 1000.0, sp.speed);
+  }
+  if (now - sp.startMs >= sp.durMs) {
+    sp.active = false;
+    returnToNormalServo(a);                              // brake, then hand back once stopped
+    Con.printf("spin: done. %d speed drop%s", sp.drops, sp.drops == 1 ? "" : "s");
+    if (sp.minV < 99) Con.printf(", lowest supply %.2f V", sp.minV);
+    Con.println();
+  }
+}
+
+// ==================================================================
 // AUTO DIR: which way does positive drive turn the encoder? (sets invertMotor)
 // ==================================================================
 // Open loop and tiny: ramps the duty up from DIR_START_DUTY until the encoder
@@ -1776,13 +1854,26 @@ static void printBlackBox(int a) {
       else if (fabs(speedAt(0)) > 0.1 * fabs(vRef))
         Con.printf("  -> it slowed over tens of ms and kept turning at %.0f%% of speed with full drive applied:\n"
                    "     the motor was getting far less drive than commanded (driver current limit/protection,\n"
-                   "     12 V supply sag) or met heavy resistance. If the servo was oscillating ('cap'), the\n"
+                   "     motor supply sag) or met heavy resistance. If the servo was oscillating ('cap'), the\n"
                    "     current swings can trip the driver -- lower kp/ki first.\n", 100.0 * fabs(speedAt(0) / vRef));
       else
         Con.println(F("  -> the motor slowed over tens of ms to a stop with drive applied: it most likely LOST DRIVE\n"
-                      "     POWER and coasted (DRV8871 fault, 12 V supply, motor wiring) or jammed gradually.\n"
-                      "     Check the motor wires, driver supply and driver temperature."));
+                      "     (driver shut down, supply, motor wiring) or jammed. Check the motor wires/connector,\n"
+                      "     driver temperature, and whether the motor was still turning (encoder) -- see 'spin'."));
     } else Con.println(F("  (speed didn't fall cleanly in the recorded window)"));
+  }
+  // what the supply did over the same window
+  double vMax = 0, vMin = 99;
+  for (int m = 0; m < 400; m++) {
+    double v = bbVolt[a][(end - m + BB_N) % BB_N];
+    if (v < SUPPLY_PRESENT_V) { vMax = 0; break; }
+    vMax = fmax(vMax, v); vMin = fmin(vMin, v);
+  }
+  if (vMax > 0) {
+    if (vMin > 0.9 * vMax)
+      Con.printf("  motor supply stayed at %.1f-%.1f V throughout: NOT a supply problem.\n", vMin, vMax);
+    else
+      Con.printf("  motor supply fell from %.1f V to %.1f V in this window: SUPPLY sag/cut-out involved.\n", vMax, vMin);
   }
 }
 
@@ -1817,6 +1908,8 @@ static void printHelp() {
     "  x                       emergency stop: disable both axes\n"
     "  fault                   show what each axis was doing when it last faulted\n"
     "  vsup [reset]            motor supply voltage now / lowest / highest (12V-10k-GP28-1k-GND)\n"
+    "  spin <axis> <duty> [s]  open-loop run (no servo, no fault trip), reports speed drops -- for\n"
+    "                          telling encoder dropouts from drive/motor/mechanical stops\n"
     "  cap <axis> [sec]        record duty at 500 Hz during a move, report repeating drag + which part\n"
     "                          (motor / gearbox stage / worm) turns at that rate; 'cap dump' = raw CSV\n"
     "  kp/ki <axis> <val>      tune the MOVING (track/slew) gains directly (full-strength values)\n"
@@ -1903,6 +1996,7 @@ static void abortTune(int a) {
   relay[a].active = false;
   speedtune[a].active = false;
   dirtest[a].active = false;
+  spin[a].active = false;
   if (testMode[a]) returnToNormalServo(a);
   Con.printf("axis %d: any running auto-tune stopped\n", a);
 }
@@ -2295,6 +2389,13 @@ static void handleLineFull(char *line) {
 
   if (!strcasecmp(cmd, "h")) { printHelp(); return; }
   if (!strcasecmp(cmd, "fault")) { printFaultInfo(0); printFaultInfo(1); return; }
+  if (!strcasecmp(cmd, "spin")) {
+    if (!axValid || !t2) { Con.println(F("usage: spin <axis> <duty%, +/-> [seconds, default 30, max 120]")); return; }
+    double secs = t3 ? atof(t3) : 30;
+    if (secs < 1 || secs > 120) secs = 30;
+    startSpin(ax, atof(t2), secs);
+    return;
+  }
   if (!strcasecmp(cmd, "vsup")) {
     if (t1 && !strcasecmp(t1, "reset")) { supplyMinV = 99; supplyMaxV = 0; }
     if (supplyV < SUPPLY_PRESENT_V) { Con.println(F("vsup: monitor not fitted (12V -> 10k -> GP28 -> 1k -> GND)")); return; }
@@ -2506,6 +2607,7 @@ void loop() {
     updateRelayTune(a);
     updateSpeedTune(a);
     updateDirTest(a);
+    updateSpin(a);
   }
   updateFullTune();
   skyUpdate();
