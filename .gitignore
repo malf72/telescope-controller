@@ -1,0 +1,18 @@
+# Arduino / arduino-cli build output (if ever built inside the project)
+build/
+*.elf
+*.uf2
+*.bin
+*.hex
+*.map
+# host test binaries
+tests/test_calib
+tests/test_coord
+tests/test_lx200
+tests/test_servo
+tests/test_sky
+# editor / OS clutter
+*~
+*.swp
+.vscode/
+.DS_Store
