@@ -236,6 +236,12 @@ drive the "run everything" sequence so it doesn't block `loop()`.
 
 ## Conventions worth preserving
 
+- **Version control (since 2026-11-06):** the project is a git repo (branch
+  `main`, repo-local identity malf72). Commit before every firmware upload,
+  and tag the commit that is actually flashed (e.g. `git tag flashed-2026-11-06a`)
+  so "it worked two versions ago" can be checked by rebuilding that exact
+  version (`git checkout <tag>`, build, upload).
+
 - Keep the shared math (`servo_core.h`) free of any Arduino/pico-SDK calls,
   so it stays unit-testable with plain g++ — this caught the stiction/hunting
   bug before it ever reached hardware and is worth doing again for any new
