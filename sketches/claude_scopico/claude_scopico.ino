@@ -143,6 +143,8 @@ static const uint   SUPPLY_ADC_PIN = 28, SUPPLY_ADC_INPUT = 2;
 static const double SUPPLY_DIVIDER = 11.0;       // (10k + 1k) / 1k
 static const double SUPPLY_PRESENT_V = 3.0;
 static volatile float supplyV = 0, supplyMinV = 99, supplyMaxV = 0;
+static const double SUPPLY_CAL_MIN_V = 10.5;     // 'auto full' refuses to save if the 12 V supply sagged below this
+static const double SPEED_TEST_MIN_SID = 50;     // speed test must reach this many x sidereal to count as working
 static FaultInfo faultInfo[2];
 static volatile bool faultInfoNew[2] = {false, false};
 
@@ -935,6 +937,11 @@ static void startFullTune(bool useZN, double relayDuty, double relayH) {
   enableAxis(0);   // (re)enable both: clears any fault, holds at the current position
   enableAxis(1);
   if (!motorsEnabled[0] || !motorsEnabled[1]) { Con.println(F("auto full: not started")); return; }
+  if (supplyV >= SUPPLY_PRESENT_V && supplyV < SUPPLY_CAL_MIN_V)
+    Con.printf("auto full: WARNING motor supply is only %.2f V -- the run will be refused at the end below %.1f V\n",
+               supplyV, SUPPLY_CAL_MIN_V);
+  supplyMinV = 99;                                 // track the supply over this run ('vsup' min restarts here)
+  supplyMaxV = 0;
   autoFullBusy = true;
   Con.printf("auto full: started -- ff + pi (%s, d=%.1f%%, h=%.1f) + speed on axis 0 then axis 1, then save.\n",
                 useZN ? "Ziegler-Nichols" : "Tyreus-Luyben", relayDuty, relayH);
@@ -978,10 +985,12 @@ static void updateFullTune() {
       cancelFullTune("relay pi tune failed"); return;
     }
   } else {
-    // mv must at least allow sidereal tracking speed, or slews would be slower than the sky
+    // A working motor reaches ~700x sidereal at md; demanding 50x catches a
+    // motor that only crawled (2026-11-06: a sagging supply gave 63 counts/s,
+    // which used to pass and saved mv = 44 counts/s).
     if (!haveSpeedResult[a] || !isfinite(lastSuggestMaxVel[a]) || !isfinite(lastSuggestMaxAccel[a]) ||
-        lastSuggestMaxVel[a] <= SIDEREAL_CPS || lastSuggestMaxAccel[a] <= 0) {
-      cancelFullTune("speed test failed (axis barely moved?)"); return;
+        lastPlateau[a] < SPEED_TEST_MIN_SID * SIDEREAL_CPS || lastSuggestMaxAccel[a] <= 0) {
+      cancelFullTune("speed test: motor barely moved at md (weak supply? clutch? wiring?)"); return;
     }
   }
 
@@ -990,8 +999,14 @@ static void updateFullTune() {
   F.settleStartMs = millis();
   if (F.step < FULL_NSTEPS) return;
 
-  // all done: apply together, then save
+  // all done: refuse to apply anything measured on a sagging motor supply
   autoFullBusy = false;
+  if (supplyMaxV >= SUPPLY_PRESENT_V && supplyMinV < SUPPLY_CAL_MIN_V) {
+    Con.printf("auto full: ABORTED -- the motor supply dropped to %.2f V during the run (needs >= %.1f V).\n"
+               "  Results measured on a weak supply are wrong, so nothing was applied or saved. Fix the 12 V\n"
+               "  supply/wiring first ('vsup' to check), then run 'auto full' again.\n", supplyMinV, SUPPLY_CAL_MIN_V);
+    return;
+  }
   for (int b = 0; b < 2; b++) {
     applyFF(b, lastTuneFF[b] * SIDEREAL_CPS, lastPlateau[b], lastPlateauDuty[b]);
     SERVO_LOCK();
