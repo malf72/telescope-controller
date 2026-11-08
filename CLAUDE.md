@@ -127,9 +127,13 @@ C++. Requirements:
 
 ## Software status: six sketches, in order, each building on the last
 
-All in `sketches/`, each a complete Arduino sketch folder (`.ino` + a shared
-`servo_core.h` math header + a pre-assembled PIO header for the quadrature
-decoder).
+Each is a complete Arduino sketch folder (`.ino` + a shared `servo_core.h`
+math header + a pre-assembled PIO header for the quadrature decoder).
+
+**Only sketch #6 (`sketches/claude_scopico/`) is still in the tree.** Sketches
+#1-#5 were removed on 2026-11-08 (commit "Remove old sketches #1-#5"); the
+history below is kept for context. To get one back:
+`git checkout <that commit>~1 -- sketches/<name>`.
 
 1. **`telescope_bringup/`** — encoder-only + open-loop motor test sketch.
    Used to confirm CPR, wiring, and direction by hand. Superseded for normal
