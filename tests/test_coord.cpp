@@ -1,5 +1,5 @@
-// Host unit test for sketches/claude_scopico/coord_core.h
-// build: g++ -std=gnu++17 -Wall -Wextra -I../sketches/claude_scopico test_coord.cpp -o test_coord && ./test_coord
+// Host unit test for claude_scopico/coord_core.h
+// build: g++ -std=gnu++17 -Wall -Wextra -I../claude_scopico test_coord.cpp -o test_coord && ./test_coord
 #include "coord_core.h"
 #include <cstdio>
 #include <cstdlib>

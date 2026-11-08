@@ -2,7 +2,7 @@
 
 ## State when work stopped
 
-- **Firmware on the Pico:** `sketches/claude_scopico`, git tag `flashed-2026-11-06b`.
+- **Firmware on the Pico:** `claude_scopico/`, git tag `flashed-2026-11-06b`.
   It has the speed-scheduled gains (`gs`), the stricter `auto full` checks, the
   supply monitor (`vsup`), the fault black box (`fault`), the 500 Hz recorder
   (`cap`) and the open-loop `spin` test.

@@ -1,9 +1,9 @@
-// Host simulation test for sketches/claude_scopico/servo_core.h against a DC
+// Host simulation test for claude_scopico/servo_core.h against a DC
 // motor model fitted to the bench-measured axis-1 numbers (2026-10-09 'p'):
 //   ~3.52 % duty -> sidereal 10.34 counts/s (auto ff), 40 % -> ~27,700 counts/s
 //   (auto speed plateau = maxVel/0.7), 90 % rise ~0.2 s.
 // i.e. a big friction deadband (~3.5 %) then ~760 counts/s per % duty.
-// build: g++ -std=gnu++17 -Wall -Wextra -I../sketches/claude_scopico test_servo.cpp -o test_servo && ./test_servo
+// build: g++ -std=gnu++17 -Wall -Wextra -I../claude_scopico test_servo.cpp -o test_servo && ./test_servo
 #include "servo_core.h"
 #include <cstdio>
 #include <cmath>

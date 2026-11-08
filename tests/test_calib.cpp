@@ -1,5 +1,5 @@
-// Host unit test for sketches/claude_scopico/calib_config.h (latest sketch)
-// build: g++ -std=gnu++17 -Wall -I../sketches/claude_scopico test_calib.cpp -o test_calib && ./test_calib
+// Host unit test for claude_scopico/calib_config.h (latest sketch)
+// build: g++ -std=gnu++17 -Wall -I../claude_scopico test_calib.cpp -o test_calib && ./test_calib
 #include "calib_config.h"
 #include <cassert>
 #include <string>

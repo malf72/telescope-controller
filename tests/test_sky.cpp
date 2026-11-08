@@ -1,5 +1,5 @@
-// Host unit test for sketches/claude_scopico/sky_config.h
-// build: g++ -std=gnu++17 -Wall -Wextra -I../sketches/claude_scopico test_sky.cpp -o test_sky && ./test_sky
+// Host unit test for claude_scopico/sky_config.h
+// build: g++ -std=gnu++17 -Wall -Wextra -I../claude_scopico test_sky.cpp -o test_sky && ./test_sky
 #include "sky_config.h"
 #include <string>
 

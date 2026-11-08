@@ -1,5 +1,5 @@
-// Host unit test for sketches/claude_scopico/lx200_core.h
-// build: g++ -std=gnu++17 -Wall -Wextra -I../sketches/claude_scopico test_lx200.cpp -o test_lx200 && ./test_lx200
+// Host unit test for claude_scopico/lx200_core.h
+// build: g++ -std=gnu++17 -Wall -Wextra -I../claude_scopico test_lx200.cpp -o test_lx200 && ./test_lx200
 #include "lx200_core.h"
 #include <string>
 
