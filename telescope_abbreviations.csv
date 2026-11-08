@@ -1,0 +1,107 @@
+Category,Abbreviation,Meaning,Description
+Telescope & Astronomy,RA,Right Ascension,The equatorial-mount axis equivalent to longitude on the sky
+Telescope & Astronomy,Dec,Declination,The equatorial-mount axis equivalent to latitude on the sky
+Telescope & Astronomy,Az,Azimuth,Compass bearing; axis 0 on this alt-az LX90
+Telescope & Astronomy,Alt,Altitude,Angle above the horizon; axis 1 on this alt-az LX90
+Telescope & Astronomy,EQ,Equatorial mount,"Axes aligned with Earth's rotation, so tracking is one axis moving at a constant rate"
+Telescope & Astronomy,Alt/Az,Altitude/Azimuth mount,Axes aligned with the horizon and compass bearing; tracking needs both axes moving continuously
+Telescope & Astronomy,LX200,Meade LX200,Meade's classic telescope command protocol (served on TCP port 4030); also an older Meade product line related to the LX90
+Telescope & Astronomy,INDI,Instrument Neutral Distributed Interface,Astronomy device protocol; Stellarium connects through indiserver + indi_lx200basic to telescope.local:4030
+Telescope & Astronomy,JNow,Coordinates of the current date,"RA/Dec referred to today's equinox (INDI convention), as opposed to J2000"
+Telescope & Astronomy,J2000,Epoch 2000.0 coordinates,Standard catalogue RA/Dec frame; converted to JNow for the mount
+Telescope & Astronomy,LST,Local Sidereal Time,The RA currently on the meridian; computed from UTC and site longitude
+Telescope & Astronomy,UTC,Coordinated Universal Time,The time base the firmware uses; set by NTP or the 'time' command
+Telescope & Astronomy,sid,Sidereal rate,Rate the sky turns: 41.37 counts/s at the motor encoder on this mount
+Telescope & Astronomy,CPR,Counts Per Revolution,Quadrature encoder counts per motor-shaft turn: 432 (108 lines x 4 edges). The old value of 108 was wrong
+Telescope & Astronomy,Taki model,Toshimi Taki alignment matrix,"The star-sync alignment model in coord_core.h: 1 star = offsets, 2+ stars = full rotation model"
+Electronics & Hardware,PWM,Pulse-Width Modulation,The rapid on/off switching used to control motor speed/duty (20 kHz on the DRV8871s)
+Electronics & Hardware,GPIO,General-Purpose Input/Output,A microcontroller pin usable for digital signals
+Electronics & Hardware,ADC,Analog-to-Digital Converter,Reads a voltage on a pin; GP28 (ADC2) monitors the motor supply
+Electronics & Hardware,DRV8871,TI DRV8871 motor driver,"Current motor driver, one board per axis; IN1/IN2 only: 00 coast, 10 fwd, 01 rev, 11 brake; 3.6 A peak"
+Electronics & Hardware,IN1 / IN2,Driver control inputs,"The two inputs per DRV8871 that set direction and speed (az GP12/13, alt GP20/21)"
+Electronics & Hardware,TB6612,Toshiba TB6612 motor driver,"Original dual driver (1.2 A cont.), replaced by DRV8871s on 2026-11-01"
+Electronics & Hardware,STBY,Standby,TB6612 pin that enabled both channels; not used with the DRV8871s
+Electronics & Hardware,H-bridge,H-bridge driver,"A driver circuit topology that can run a DC motor forward, reverse, brake, or coast"
+Electronics & Hardware,PSU,Power Supply Unit,The 15 V 6 A supply that now feeds both motor drivers directly
+Electronics & Hardware,LM2596,LM2596 buck converter,"Step-down regulator once used to make 12 V; sagged to 4-5 V under load, removed from the motor path"
+Electronics & Hardware,Vsup,Motor supply voltage,Measured via 15V -> 10k -> GP28 -> 1k -> GND; see the 'vsup' command
+Electronics & Hardware,RP2040 / RP2350,Microcontroller chips,The chips inside the original Pico and the Pico 2 respectively
+"Microcontroller, Networking & Software",PIO,Programmable I/O,"The Pico's small, separate state-machine hardware, used here for the encoder decoder"
+"Microcontroller, Networking & Software",SM,State Machine,"One of PIO's parallel execution units, running the quadrature-decode program"
+"Microcontroller, Networking & Software",ISR,Interrupt Service Routine,The function that runs at 1 kHz to execute the servo loop (on core 1)
+"Microcontroller, Networking & Software",FIFO,First-In-First-Out,The small hardware queue the PIO pushes encoder counts into
+"Microcontroller, Networking & Software",SDK,Software Development Kit,"Here, the Raspberry Pi Pico SDK, which arduino-pico is built on"
+"Microcontroller, Networking & Software",IDE,Integrated Development Environment,The Arduino IDE used to write/flash the sketches
+"Microcontroller, Networking & Software",LittleFS,Little File System,"Flash filesystem on the Pico holding /calib.txt, /sky.txt, /park.txt, /wifi.txt, /hwdir.txt"
+"Microcontroller, Networking & Software",NTP,Network Time Protocol,Used to set the Pico's clock over WiFi (needed for accurate sidereal time)
+"Microcontroller, Networking & Software",mDNS,Multicast DNS,Lets you reach the Pico by a name like telescope.local instead of an IP
+"Microcontroller, Networking & Software",OTA,Over-The-Air (updates),Reflashing firmware over WiFi instead of USB
+"Microcontroller, Networking & Software",TCP,Transmission Control Protocol,Connection type for LX200 (port 4030) and telnet (port 23)
+"Microcontroller, Networking & Software",Telnet,Telnet console,The serial console mirrored over the network: telnet telescope.local
+"Microcontroller, Networking & Software",HTTP,Hypertext Transfer Protocol,Used by the planned Elm web UI to talk to the Pico's REST-style API
+"Microcontroller, Networking & Software",JSON,JavaScript Object Notation,The data format for that API
+"Microcontroller, Networking & Software",CSV,Comma-Separated Values,Plain-text table format; 'cap dump' prints raw capture data as CSV
+Control Theory & Tuning,PID,Proportional-Integral-Derivative,The general family of feedback controller
+Control Theory & Tuning,PI,Proportional-Integral,The subset actually used here (no derivative term)
+Control Theory & Tuning,Kp,Proportional gain,Output added per unit of current position error
+Control Theory & Tuning,Ki,Integral gain,Output added per unit of accumulated error over time
+Control Theory & Tuning,Kd,Derivative gain,Output added based on the rate of change of error (not used in the final design)
+Control Theory & Tuning,ff,Feedforward gain,Duty % commanded per count/s of target speed
+Control Theory & Tuning,ffo,Feedforward offset,Fixed duty % added to overcome friction; with ff gives the two-point feedforward ffOffset + ffGain*v
+Control Theory & Tuning,Ku,Ultimate gain,The proportional gain at which the relay test's forced oscillation was measured
+Control Theory & Tuning,Tu,Ultimate period,The oscillation period measured during that same relay test
+Control Theory & Tuning,ZN,Ziegler-Nichols,"A classic, more aggressive PI-tuning formula derived from Ku/Tu"
+Control Theory & Tuning,TL,Tyreus-Luyben,"A gentler PI-tuning formula derived from the same Ku/Tu, less prone to overshoot (default)"
+Control Theory & Tuning,Gain schedule,Speed-scheduled moving gains,"Full kp/ki at or below 10x sidereal, 0.25x at or above 100x sidereal, blended between (see 'gs')"
+Control Theory & Tuning,Anti-windup,Integral limiting,Stops the integral term growing while the output is saturated; I-term capped at maxDuty
+Control Theory & Tuning,Bumpless,Bumpless gain transfer,Integral rescaled whenever the effective ki changes so the output doesn't jump
+Control Theory & Tuning,Following error,Position-error fault,Fault tripped when error exceeds et plus 0.1 s of travel; axis is disabled
+Control Theory & Tuning,HOLD / TRACK / SLEW,Servo modes,Static hold with gentle gains / constant-rate tracking / trapezoidal goto profile
+Serial commands - axis & servo,h,Help,Print the command list
+Serial commands - axis & servo,s,Status stream,Toggle the 2 Hz status stream
+Serial commands - axis & servo,e / d,Enable / disable,"Enable or disable an axis (axis or 'a' for both); d coasts, clears faults and aborts any auto-tune"
+Serial commands - axis & servo,z,Zero,Zero the encoder count (axis must be disabled first)
+Serial commands - axis & servo,g / gd,Goto (absolute/relative),g <axis> <counts> slews to an absolute count; gd <axis> <delta> slews by a relative count
+Serial commands - axis & servo,t,Track,t <axis> sid|-sid|<c/s>: track at sidereal or any signed counts/s
+Serial commands - axis & servo,o,Hold,Stop and hold the current position
+Serial commands - axis & servo,p,Print,Print axis parameters and state
+Serial commands - axis & servo,x,Emergency stop,Disable both axes
+Serial commands - axis & servo,kp / ki,Moving gains,Set moving-mode (track/slew) proportional/integral gain (full-strength values)
+Serial commands - axis & servo,gs,Gain schedule,"gs [<axis|a> <fast> [slow fast]]: 'fast' x kp/ki at or above fast c/s, full below slow c/s"
+Serial commands - axis & servo,kph / kih,Hold gains,Set hold-mode proportional/integral gain
+Serial commands - axis & servo,ff / ffo,Feedforward,Set feedforward gain (duty % per count/s) / friction offset (duty %)
+Serial commands - axis & servo,md / mi,Duty/integral limits,Max duty % / max integral clamp (moving); md is 32 % on the 15 V supply
+Serial commands - axis & servo,mv / ma,Slew limits,Max slew velocity (counts/s) / acceleration (counts/s^2)
+Serial commands - axis & servo,et,Error threshold,"Following-error fault threshold, counts"
+Serial commands - diagnostics,fault,Fault black box,"Show what each axis was doing (speed/duty/supply, last 0.5 s) when it last faulted"
+Serial commands - diagnostics,vsup,Supply voltage,vsup [reset]: motor supply now / lowest / highest
+Serial commands - diagnostics,spin,Open-loop spin,"spin <axis> <duty> [s]: run without the servo or fault trip, report speed drops"
+Serial commands - diagnostics,cap,Capture,"cap <axis> [sec]: record duty at 500 Hz during a move, report repeating drag and which shaft turns at that rate; 'cap dump' = raw CSV"
+Serial commands - auto-tune,auto full,Full auto-tune,"auto full [tl|zn] [duty] [h]: ff+pi+speed on axis 0 then 1, apply all, save; refuses if supply < 10.5 V or speed < 50x sidereal"
+Serial commands - auto-tune,auto ff,Feedforward tune,"auto ff <axis>: open-loop ramp, both directions"
+Serial commands - auto-tune,auto pi,Relay PI tune,"auto pi <axis> [duty] [h]: relay auto-tune for kp/ki (default 15 % duty, 1.5 counts hysteresis)"
+Serial commands - auto-tune,auto speed,Speed test,"auto speed <axis>: open-loop step to md, suggests mv/ma"
+Serial commands - auto-tune,auto apply,Apply result,auto apply <axis> ff|tl|zn|speed: commit the last suggestion from that test
+Serial commands - auto-tune,auto abort,Abort tune,"auto abort <axis|a>: stop any running auto-tune, including auto full"
+Serial commands - auto-tune,auto dir,Direction check,auto dir <axis|a>: sets invertMotor (saved); required after any wiring change before axes can be enabled
+Serial commands - calibration storage,cfg save,Save calibration,Save both axes' calibration to /calib.txt
+Serial commands - calibration storage,cfg load,Load calibration,Reload the saved calibration (both axes disabled)
+Serial commands - calibration storage,cfg show,Show calibration,Print the saved file
+Serial commands - calibration storage,cfg erase,Erase calibration,Delete the saved file (built-in defaults from next boot)
+Serial commands - network,wifi,WiFi,"wifi ""<ssid>"" ""<pass>"" saves and connects; 'wifi' = status; 'wifi forget' clears"
+Serial commands - network,lxlog,LX200 log,Toggle logging of LX200 traffic on port 4030
+Serial commands - sky & pointing,where,Where,"Time, site, mount, pointing and alignment summary"
+Serial commands - sky & pointing,site,Site,"site <lat> <lon>: observing site, decimal degrees, east + (saved)"
+Serial commands - sky & pointing,mount,Mount type,"mount eq|altaz: wedge or alt-az (saved, clears alignment)"
+Serial commands - sky & pointing,msign,Axis sign,"msign <axis> 1|-1: encoder count direction of an axis (saved, clears alignment)"
+Serial commands - sky & pointing,horizon,Horizon limit,horizon <deg>: refuse gotos below this altitude (saved)
+Serial commands - sky & pointing,jogmax,Jog limit,"jogmax <fraction>: fastest arrow-button speed as a fraction of mv, 0.05-1 (saved)"
+Serial commands - sky & pointing,scale,Axis scale,"scale [<axis> mark | <axis> <deg> | <axis> rev <n>]: counts per axis turn, 3,564,965 (saved)"
+Serial commands - sky & pointing,time,Set time,time YYYY-MM-DD HH:MM:SS: set UTC by hand (no internet)
+Serial commands - sky & pointing,sync,Sync,sync <ra> <dec>: 'the scope is centred on this' (hh:mm:ss +dd:mm:ss); adds an alignment star
+Serial commands - sky & pointing,goto,Goto,goto <ra> <dec>: slew there and track
+Serial commands - sky & pointing,align,Alignment,align [clear]: show the alignment stars and residuals / start over
+Serial commands - sky & pointing,jog,Jog,jog n|s|e|w [g|c|m|s] [sec]: nudge at guide/centre/move/slew rate; 'jog stop'
+Serial commands - sky & pointing,trk,Tracking,trk on|off: tracking after goto/sync
+Serial commands - sky & pointing,stop,Stop,"Stop slewing, moving and tracking (motors hold)"
+Serial commands - sky & pointing,park,Park,park [here]: slew home (or stay) and save the alignment for the next boot
